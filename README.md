@@ -1,117 +1,64 @@
-# Klee HTTP API
+# Klee GitHub Webhook Handler (KGWH)
 
-- **Última atualização**: 11 de Abril de 2026
+**Last Updated**: April 16, 2026
 
-# Como Integrar: API de Migração Jazzcoins & Luminas
+## Overview
+The GitHub Webhook Handler allows the bot to automatically detect new commits and trigger internal updates. It listens for push events from a specified repository and verifies the authenticity of each request using a secure HMAC signature.
 
-## Base URL
-
+## Endpoint Configuration
+### Webhook URL
 ```
-https://klee-http-api.up.railway.app/api/migrate/jazzcoins
-```
-
-## Autenticação (Token)
-
-- Tipo: **Bearer Token**
-- Header: `Authorization: Bearer seutokenvaiaqui`
-- PS: O token foi definido no `.env` do Klee: `JAZZ_MIGRATION_SECRET` (eu irei te enviar)
-
-## Método (IMPORTANTE)
-
-```
-POST
+POST /github-webhook
 ```
 
-## Corpo da Requisição (JSON) :o
+### Authentication
+The endpoint uses a **Secret Token** to verify payloads via the `X-Hub-Signature-256` header.
+* **Secret**: Defined in your environment variables as `GITHUB_WEBHOOK_SECRET`.
+* **Mechanism**: HMAC-SHA256.
 
-| Campo     | Tipo   | Obrigatório | Descrição                                            |
-| --------- | ------ | ----------- | ---------------------------------------------------- |
-| userId    | string | sim         | ID do usuário no bot Klee                            |
-| amount    | number | sim         | Quantidade de Jazzcoins a migrar                     |
-| requestId | string | sim         | ID único da requisição (UUID) para evitar duplicação |
+## GitHub Setup Instructions
 
-**Exemplo em Python usando requests:**
+To enable automatic updates, configure your repository webhook as follows:
 
-```python
-import requests
-import uuid
-
-url = "https://klee-http-api.up.railway.app/api/migrate/jazzcoins"
-token = "KLEE_JAZZ_PRIVATE_2026_X9A71"
-
-payload = {
-    "userId": "123456789",
-    "amount": 1000,
-    "requestId": str(uuid.uuid4())
-}
-
-headers = {
-    "Authorization": f"Bearer {token}",
-    "Content-Type": "application/json"
-}
-
-response = requests.post(url, json=payload, headers=headers)
-print(response.json())
-```
+1. Go to your GitHub Repository **Settings**.
+2. Select **Webhooks** > **Add webhook**.
+3. **Payload URL**: `https://your-server-url.com/github-webhook`
+4. **Content type**: `application/json`
+5. **Secret**: Enter the value matching your `GITHUB_WEBHOOK_SECRET`.
+6. **Events**: Select **Just the push event**.
 
 ---
 
-## Respostas
+## Logic and Behavior
 
-- **Sucesso**
+### Signature Verification
+The server calculates a digest using the local secret and the request body. It compares this against the GitHub header using a timing-safe equality check to prevent side-channel attacks.
 
-```json
-{
-  "success": true
-}
+### Update Flag
+When a valid `push` event is received:
+* The server logs: `[com.klee.http-api]: New commit detected. Bot is updating...`
+* The internal variable `updateStatus.isUpdatePending` is set to `true`.
+* The bot core monitors this flag to initiate the update procedure.
+
+---
+
+## API Responses
+### Success (200 OK)
+Returned when the signature is valid and the event is processed.
+```text
+OK
 ```
 
-- **Duplicata (mesmo requestId já registrado)**
-
-```json
-{
-  "success": true,
-  "duplicate": true
-}
+### Unauthorized (401 Unauthorized)
+Returned if the signature is missing or does not match the local secret.
+```text
+Invalid signature
 ```
+## Integration Details
 
-- **Erro de autenticação**
+| Header | Description |
+| :--- | :--- |
+| **x-github-event** | Must be `push` to trigger the update flag. |
+| **x-hub-signature-256** | The HMAC hex digest of the payload. |
 
-```json
-{
-  "error": "[401] | com.klee.http-api | Não autorizado"
-}
-```
-
-- **Erro de validação**
-
-```json
-{
-  "error": "[400] | com.klee.http-api | Campos obrigatórios ausentes"
-}
-```
-
-OU
-
-```json
-{
-  "error": "[400] | com.klee.http-api | Quantidade inválida"
-}
-```
-
-- **Erro interno**
-
-```json
-{
-  "error": "[500] | com.klee.http-api | Erro interno ao migrar moedas"
-}
-```
-
-## Boas práticas :D
-
-1. **Não repetir requestId**: cada migração deve ter um ID único, evitando que tenha requests repetidas
-2. **Só remover Jazzcoins do Jazzghost após sucesso da requisição**;
-3. **BigInt**: a quantidade (`amount`) deve ser número inteiro positivo;
-4. **Segurança**: não compartilhe o token secreto com NINGUÉM ou pessoas má-intencionadas podem utilizar o site;
-5. **Transação**: a API garante que a adição de Luminas só ocorre se o registro de migração for criado com sucesso (IMPORTANTE)
-6. **Upsert**: se o usuário nunca tiver usado o Klee, o bot vai lidar com isso normalmente.
+The system uses a non-blocking approach; it acknowledges the GitHub request immediately after updating the internal state flag to ensure the webhook does not time out.
