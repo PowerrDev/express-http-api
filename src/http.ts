@@ -27,7 +27,7 @@ import express from "express";
 import dotenv from "dotenv";
 import crypto from "crypto";
 
-import { prisma } from "../../lib/prisma";
+import { butterscotch } from "../../lib/butterscotch";
 
 dotenv.config();
 
@@ -67,7 +67,7 @@ app.post("/api/migrate/jazzcoins", async (req, res) => {
         .json({ error: "[400] | com.klee.http-api | Quantidade inválida" });
     }
 
-    const existingMigration = await prisma.coinMigration.findUnique({
+    const existingMigration = await butterscotch.coinMigration.findUnique({
       where: { requestId },
     });
 
@@ -75,7 +75,7 @@ app.post("/api/migrate/jazzcoins", async (req, res) => {
       return res.status(200).json({ success: true, duplicate: true });
     }
 
-    await prisma.$transaction(async (tx) => {
+    await butterscotch.$transaction(async (tx) => {
       await tx.coinMigration.create({
         data: {
           requestId,
